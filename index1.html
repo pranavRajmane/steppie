@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STEP File 3D Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .main-view {
+            flex: 1;
+            position: relative;
+            background: #000;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo p {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .upload-section {
+            margin-bottom: 30px;
+        }
+
+        .upload-area {
+            border: 2px dashed #4ecdc4;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(78, 205, 196, 0.1);
+        }
+
+        .upload-area:hover {
+            border-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .upload-area.dragover {
+            border-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.2);
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+            color: #4ecdc4;
+        }
+
+        .upload-text {
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .upload-hint {
+            font-size: 12px;
+            color: #888;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .stats-section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #4ecdc4;
+            border-bottom: 1px solid rgba(78, 205, 196, 0.3);
+            padding-bottom: 5px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .stat-label {
+            color: #ccc;
+        }
+
+        .stat-value {
+            color: white;
+            font-weight: bold;
+        }
+
+        .controls-section {
+            margin-bottom: 30px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #ccc;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #333;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: none;
+            border-radius: 6px;
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(78, 205, 196, 0.4);
+        }
+
+        .button:disabled {
+            background: #555;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #333;
+            border-top: 4px solid #4ecdc4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: rgba(255, 107, 107, 0.2);
+            border: 1px solid #ff6b6b;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .success {
+            background: rgba(78, 205, 196, 0.2);
+            border: 1px solid #4ecdc4;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .viewer-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+        }
+
+        .viewer-controls button {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 10px;
+            margin: 5px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .viewer-controls button:hover {
+            background: rgba(78, 205, 196, 0.8);
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ecdc4, #44a08d);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo">
+                <h1>🔧 STEP Viewer</h1>
+                <p>3D CAD File Processor</p>
+            </div>
+
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">Drop STEP file here</div>
+                    <div class="upload-hint">or click to browse</div>
+                </div>
+                <input type="file" id="fileInput" accept=".step,.stp,.iges,.igs">
+            </div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div>Processing STEP file...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+
+            <div id="messageArea"></div>
+
+            <div class="stats-section" id="statsSection" style="display: none;">
+                <div class="section-title">📊 Model Statistics</div>
+                <div class="stat-item">
+                    <span class="stat-label">File Name:</span>
+                    <span class="stat-value" id="fileName">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">File Size:</span>
+                    <span class="stat-value" id="fileSize">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Meshes:</span>
+                    <span class="stat-value" id="meshCount">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Vertices:</span>
+                    <span class="stat-value" id="vertexCount">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Triangles:</span>
+                    <span class="stat-value" id="triangleCount">-</span>
+                </div>
+            </div>
+
+            <div class="controls-section" id="controlsSection" style="display: none;">
+                <div class="section-title">🎮 View Controls</div>
+                
+                <div class="control-group">
+                    <label class="control-label">Material Type</label>
+                    <select id="materialSelect" class="button">
+                        <option value="standard">Standard</option>
+                        <option value="wireframe">Wireframe</option>
+                        <option value="points">Points</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">Model Color</label>
+                    <input type="color" id="colorPicker" value="#808080" class="button">
+                </div>
+
+                <button class="button" onclick="resetCamera()">🎯 Reset View</button>
+                <button class="button" onclick="fitToScreen()">📏 Fit to Screen</button>
+                <button class="button" onclick="clearScene()">🗑️ Clear Scene</button>
+            </div>
+        </div>
+
+        <div class="main-view">
+            <canvas id="canvas"></canvas>
+            
+            <div class="viewer-controls">
+                <button onclick="toggleWireframe()">📐 Wireframe</button>
+                <button onclick="toggleStats()">📊 Stats</button>
+                <button onclick="exportView()">📸 Export</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Three.js setup
+        let scene, camera, renderer, controls;
+        let loadedMeshes = [];
+        let currentMaterial = 'standard';
+
+        // Initialize 3D scene
+        function initScene() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+            camera.position.set(10, 10, 10);
+
+            // Renderer
+            const canvas = document.getElementById('canvas');
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: canvas, 
+                antialias: true,
+                alpha: true 
+            });
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 50, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+
+            // Grid
+            const gridHelper = new THREE.GridHelper(100, 100, 0x444444, 0x444444);
+            scene.add(gridHelper);
+
+            // Axes helper
+            const axesHelper = new THREE.AxesHelper(5);
+            scene.add(axesHelper);
+
+            // Simple orbit controls (manual implementation)
+            setupOrbitControls();
+
+            // Start render loop
+            animate();
+        }
+
+        // Simple orbit controls
+        function setupOrbitControls() {
+            let isRotating = false;
+            let isPanning = false;
+            let isZooming = false;
+            let lastMouseX = 0;
+            let lastMouseY = 0;
+
+            const canvas = renderer.domElement;
+
+            canvas.addEventListener('mousedown', (event) => {
+                if (event.button === 0) isRotating = true;
+                if (event.button === 1) isPanning = true;
+                lastMouseX = event.clientX;
+                lastMouseY = event.clientY;
+            });
+
+            canvas.addEventListener('mousemove', (event) => {
+                if (!isRotating && !isPanning) return;
+
+                const deltaX = event.clientX - lastMouseX;
+                const deltaY = event.clientY - lastMouseY;
+
+                if (isRotating) {
+                    // Rotate camera around center
+                    const spherical = new THREE.Spherical();
+                    spherical.setFromVector3(camera.position);
+                    spherical.theta -= deltaX * 0.01;
+                    spherical.phi += deltaY * 0.01;
+                    spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+                    camera.position.setFromSpherical(spherical);
+                    camera.lookAt(0, 0, 0);
+                }
+
+                if (isPanning) {
+                    // Pan camera
+                    const distance = camera.position.length();
+                    const panSpeed = distance * 0.001;
+                    camera.position.x -= deltaX * panSpeed;
+                    camera.position.y += deltaY * panSpeed;
+                }
+
+                lastMouseX = event.clientX;
+                lastMouseY = event.clientY;
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isRotating = false;
+                isPanning = false;
+            });
+
+            canvas.addEventListener('wheel', (event) => {
+                event.preventDefault();
+                const zoomSpeed = 0.1;
+                const direction = camera.position.clone().normalize();
+                const distance = event.deltaY * zoomSpeed;
+                camera.position.add(direction.multiplyScalar(distance));
+            });
+
+            // Touch controls for mobile
+            let touches = [];
+            canvas.addEventListener('touchstart', (event) => {
+                touches = Array.from(event.touches);
+            });
+
+            canvas.addEventListener('touchmove', (event) => {
+                event.preventDefault();
+                const currentTouches = Array.from(event.touches);
+                
+                if (touches.length === 1 && currentTouches.length === 1) {
+                    // Single touch - rotate
+                    const deltaX = currentTouches[0].clientX - touches[0].clientX;
+                    const deltaY = currentTouches[0].clientY - touches[0].clientY;
+                    
+                    const spherical = new THREE.Spherical();
+                    spherical.setFromVector3(camera.position);
+                    spherical.theta -= deltaX * 0.01;
+                    spherical.phi += deltaY * 0.01;
+                    spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+                    camera.position.setFromSpherical(spherical);
+                    camera.lookAt(0, 0, 0);
+                }
+                
+                touches = currentTouches;
+            });
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        function onWindowResize() {
+            const canvas = renderer.domElement;
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        }
+
+        window.addEventListener('resize', onWindowResize);
+
+        // File upload handling
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        // Process uploaded file
+        async function handleFile(file) {
+            // Validate file type
+            const allowedTypes = ['.step', '.stp', '.iges', '.igs'];
+            const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+            
+            if (!allowedTypes.includes(fileExt)) {
+                showMessage('Invalid file type. Please upload STEP or IGES files.', 'error');
+                return;
+            }
+
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('statsSection').style.display = 'none';
+            document.getElementById('controlsSection').style.display = 'none';
+            clearMessages();
+
+            // Simulate progress
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 20;
+                if (progress > 90) progress = 90;
+                document.getElementById('progressFill').style.width = progress + '%';
+            }, 200);
+
+            try {
+                // Prepare form data
+                const formData = new FormData();
+                formData.append('stepFile', file);
+
+                // Send to Python server (relative path since served from same origin)
+                const response = await fetch('/process-step', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                // Complete progress
+                clearInterval(progressInterval);
+                document.getElementById('progressFill').style.width = '100%';
+
+                if (result.success) {
+                    // Process successful
+                    displayMeshes(result.data.meshes);
+                    updateStats(result.data.statistics);
+                    showMessage('STEP file processed successfully!', 'success');
+                    
+                    document.getElementById('statsSection').style.display = 'block';
+                    document.getElementById('controlsSection').style.display = 'block';
+                } else {
+                    throw new Error(result.error || 'Processing failed');
+                }
+
+            } catch (error) {
+                clearInterval(progressInterval);
+                console.error('Processing error:', error);
+                showMessage(`Processing failed: ${error.message}`, 'error');
+            } finally {
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                }, 500);
+            }
+        }
+
+        // Display meshes in 3D scene
+        function displayMeshes(meshes) {
+            // Clear existing meshes
+            clearScene();
+
+            meshes.forEach((meshData, index) => {
+                // Create Three.js geometry
+                const geometry = new THREE.BufferGeometry();
+                
+                // Set vertices
+                geometry.setAttribute('position', 
+                    new THREE.Float32BufferAttribute(meshData.vertices, 3));
+                
+                // Set normals
+                if (meshData.normals && meshData.normals.length > 0) {
+                    geometry.setAttribute('normal', 
+                        new THREE.Float32BufferAttribute(meshData.normals, 3));
+                } else {
+                    geometry.computeVertexNormals();
+                }
+                
+                // Set indices
+                if (meshData.indices && meshData.indices.length > 0) {
+                    geometry.setIndex(meshData.indices);
+                }
+
+                // Create material
+                const material = createMaterial();
+                
+                // Create mesh
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.name = `step-mesh-${index}`;
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                
+                scene.add(mesh);
+                loadedMeshes.push(mesh);
+            });
+
+            // Fit camera to show all objects
+            fitToScreen();
+            
+            console.log(`Loaded ${meshes.length} meshes into scene`);
+        }
+
+        // Create material based on current settings
+        function createMaterial() {
+            const color = document.getElementById('colorPicker').value;
+            
+            switch (currentMaterial) {
+                case 'wireframe':
+                    return new THREE.MeshBasicMaterial({
+                        color: color,
+                        wireframe: true
+                    });
+                case 'points':
+                    return new THREE.PointsMaterial({
+                        color: color,
+                        size: 2
+                    });
+                default:
+                    return new THREE.MeshStandardMaterial({
+                        color: color,
+                        metalness: 0.3,
+                        roughness: 0.4
+                    });
+            }
+        }
+
+        // Update statistics display
+        function updateStats(stats) {
+            document.getElementById('fileName').textContent = stats.fileName || '-';
+            document.getElementById('fileSize').textContent = formatFileSize(stats.fileSize || 0);
+            document.getElementById('meshCount').textContent = stats.faces || loadedMeshes.length;
+            document.getElementById('vertexCount').textContent = stats.totalVertices?.toLocaleString() || '-';
+            document.getElementById('triangleCount').textContent = stats.totalTriangles?.toLocaleString() || '-';
+        }
+
+        // Utility functions
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function showMessage(message, type) {
+            const messageArea = document.getElementById('messageArea');
+            const messageEl = document.createElement('div');
+            messageEl.className = type;
+            messageEl.textContent = message;
+            messageArea.appendChild(messageEl);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (messageEl.parentNode) {
+                    messageEl.parentNode.removeChild(messageEl);
+                }
+            }, 5000);
+        }
+
+        function clearMessages() {
+            document.getElementById('messageArea').innerHTML = '';
+        }
+
+        // Control functions
+        function resetCamera() {
+            camera.position.set(10, 10, 10);
+            camera.lookAt(0, 0, 0);
+        }
+
+        function fitToScreen() {
+            if (loadedMeshes.length === 0) return;
+
+            const box = new THREE.Box3();
+            loadedMeshes.forEach(mesh => {
+                box.expandByObject(mesh);
+            });
+
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            // Position camera to see entire model
+            const distance = maxDim * 2;
+            camera.position.set(distance, distance, distance);
+            camera.lookAt(center);
+        }
+
+        function clearScene() {
+            loadedMeshes.forEach(mesh => {
+                scene.remove(mesh);
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) mesh.material.dispose();
+            });
+            loadedMeshes = [];
+        }
+
+        function toggleWireframe() {
+            currentMaterial = currentMaterial === 'wireframe' ? 'standard' : 'wireframe';
+            updateMaterials();
+        }
+
+        function updateMaterials() {
+            const newMaterial = createMaterial();
+            loadedMeshes.forEach(mesh => {
+                const oldMaterial = mesh.material;
+                mesh.material = newMaterial.clone();
+                if (oldMaterial) oldMaterial.dispose();
+            });
+        }
+
+        function toggleStats() {
+            // This would toggle a stats display overlay
+            console.log('Stats toggle - implement as needed');
+        }
+
+        function exportView() {
+            // Render current view to image
+            renderer.render(scene, camera);
+            const canvas = renderer.domElement;
+            const link = document.createElement('a');
+            link.download = 'step-view.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        // Material and color controls
+        document.getElementById('materialSelect').addEventListener('change', (e) => {
+            currentMaterial = e.target.value;
+            updateMaterials();
+        });
+
+        document.getElementById('colorPicker').addEventListener('change', () => {
+            updateMaterials();
+        });
+
+        // Initialize the application
+        initScene();
+        console.log('🚀 STEP Viewer initialized');
+        console.log('📡 Ready to receive files from Python server at localhost:3000');
+    </script>
+</body>
+</html>
