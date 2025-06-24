@@ -823,7 +823,7 @@ if __name__ == '__main__':
         if file.endswith(('.html', '.js', '.css', '.json')):
             print(f"   ✅ {file}")
     
-    print("\n🌐 Server will run on http://localhost:3000")
+    print("\n🌐 Server will run on http://localhost:8080")
     print("📊 Features enabled:")
     print("   🔧 STEP file processing with face mapping")
     print("   🎯 Individual face mesh creation")
@@ -831,4 +831,4 @@ if __name__ == '__main__':
     print("   💾 File storage and download")
     print("   🔍 Project management API")
     
-    app.run(host='0.0.0.0', port=3000, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)
