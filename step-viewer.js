@@ -534,7 +534,10 @@ class StepViewer {
         const formData = new FormData();
         formData.append('stepFile', file);
 
-        const response = await fetch('/process-step', {
+        let basePath = window.location.pathname.split('/')[1];
+        basePath = basePath ? `/${basePath}` : '';
+
+        const response = await fetch(`${basePath}/process-step`, {
             method: 'POST',
             body: formData
         });
@@ -1130,7 +1133,10 @@ class StepViewer {
                 }
             };
             
-            const response = await fetch('/api/store-stl', {
+            let basePath = window.location.pathname.split('/')[1];
+            basePath = basePath ? `/${basePath}` : '';
+
+            const response = await fetch(`${basePath}/api/store-stl`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1200,8 +1206,11 @@ class StepViewer {
     }
 
     async checkProjectStatus(projectId) {
+        let basePath = window.location.pathname.split('/')[1];
+        basePath = basePath ? `/${basePath}` : '';
+
         try {
-            const response = await fetch(`/api/project/${projectId}`);
+            const response = await fetch(`${basePath}/api/project/${projectId}`);
             const result = await response.json();
             if (result.success) {
                 console.log('📋 Project status:', result);
@@ -1214,8 +1223,11 @@ class StepViewer {
     }
 
     async listServerProjects() {
+        let basePath = window.location.pathname.split('/')[1];
+        basePath = basePath ? `/${basePath}` : '';
+
         try {
-            const response = await fetch('/api/list-projects');
+            const response = await fetch(`${basePath}/api/list-projects`);
             const result = await response.json();
             if (result.success) {
                 console.log('📁 Available projects:', result.projects);
