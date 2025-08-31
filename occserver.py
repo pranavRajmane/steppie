@@ -4,13 +4,14 @@ Enhanced Python STEP file processor using PythonOCC
 Now includes STL export storage functionality
 """
 
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory, send_file, render_template
 from flask_cors import CORS
 import os
 import tempfile
 import time
 import json
 import mimetypes
+import uuid
 import base64
 from werkzeug.utils import secure_filename
 from datetime import datetime
@@ -27,9 +28,12 @@ from OCC.Core.Poly import Poly_Triangulation
 from OCC.Core.TColgp import TColgp_Array1OfPnt
 from OCC.Core.gp import gp_Pnt
 from OCC.Core.TopoDS import topods
-
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox 
+from OCC.Core.BRepBndLib import brepbndlib
+from OCC.Core.Bnd import Bnd_Box
+from OCC.Core.gp import gp_Trsf, gp_Vec
 # Create Flask app with static file support
-app = Flask(__name__, static_folder='.', static_url_path='')
+app = Flask(__name__)
 CORS(app, origins=["*"], methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], allow_headers=["*"])
 
 # Configuration
@@ -38,6 +42,9 @@ STL_STORAGE_FOLDER = 'stl_storage'
 EXPORTS_FOLDER = 'exports'
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 ALLOWED_EXTENSIONS = {'.step', '.stp', '.iges', '.igs'}
+
+# In-memory storage for CAD objects
+scene_objects = {}
 
 # Ensure directories exist
 for folder in [UPLOAD_FOLDER, STL_STORAGE_FOLDER, EXPORTS_FOLDER]:
@@ -75,21 +82,21 @@ def read_iges_file(file_path):
     
     return shape
 
-def extract_mesh_data(shape):
-    """Extract mesh data from OpenCASCADE shape with enhanced face mapping"""
-    vertices = []
-    triangles = []
-    faces_data = []  # Store detailed face information for mapping
-    vertex_count = 0
-    
-    # Mesh the shape with a reasonable tolerance
+# In occserver.py
+
+def extract_mesh_data(shape, shape_id=None):
+    """Extract mesh data using an indexed geometry approach for correctness."""
     mesh = BRepMesh_IncrementalMesh(shape, 0.1, False, 0.5)
     mesh.Perform()
     
     if not mesh.IsDone():
         raise Exception("Meshing failed")
+
+    # Global lists for the entire shape
+    global_vertices = []
+    global_indices = []
+    faces_data = []
     
-    # Iterate through all faces and maintain detailed face information
     face_explorer = TopExp_Explorer(shape, TopAbs_FACE)
     face_index = 0
     
@@ -99,109 +106,61 @@ def extract_mesh_data(shape):
         triangulation = BRep_Tool.Triangulation(face, location)
         
         if triangulation:
-            # Get transformation
             transform = location.Transformation()
             
-            # Store face start indices for mapping
-            face_start_vertex = vertex_count
-            face_start_triangle = len(triangles)
-            
-            # Extract vertices for this face
+            # Per-face lists for indexed geometry
             face_vertices = []
-            face_vertex_indices = []
+            face_indices = []
+            vertex_map = {}  # Maps original node index to new local index
             
-            try:
-                # Extract vertices
-                for i in range(triangulation.NbNodes()):
-                    pnt = triangulation.Node(i + 1)  # 1-based indexing
-                    # Apply transformation
-                    pnt.Transform(transform)
-                    vertex_coords = [pnt.X(), pnt.Y(), pnt.Z()]
-                    face_vertices.append(vertex_coords)
-                    vertices.append(vertex_coords)
-                    face_vertex_indices.append(vertex_count + i)
+            for i in range(triangulation.NbTriangles()):
+                triangle = triangulation.Triangle(i + 1)
+                n1, n2, n3 = triangle.Get()
+                
+                # Process each vertex of the triangle
+                for node_index in [n1, n2, n3]:
+                    if node_index not in vertex_map:
+                        new_local_index = len(face_vertices)
+                        vertex_map[node_index] = new_local_index
+                        
+                        # --- THIS IS THE FIX ---
+                        # Get the node directly by its index instead of from a pre-fetched array
+                        pnt = triangulation.Node(node_index)
+                        pnt.Transform(transform)
+                        
+                        face_vertices.append([pnt.X(), pnt.Y(), pnt.Z()])
                     
-            except Exception as e:
-                print(f"Warning: Could not extract vertices from face {face_index}: {e}")
-                face_explorer.Next()
-                face_index += 1
-                continue
-            
-            # Extract triangles for this face
-            face_triangles = []
-            face_triangle_indices = []
-            
-            try:
-                for i in range(triangulation.NbTriangles()):
-                    tri = triangulation.Triangle(i + 1)  # 1-based indexing
-                    n1, n2, n3 = tri.Get()
-                    
-                    # Adjust indices to global vertex array (0-based)
-                    global_indices = [
-                        vertex_count + n1 - 1,  # Convert to 0-based
-                        vertex_count + n2 - 1,
-                        vertex_count + n3 - 1
-                    ]
-                    triangles.append(global_indices)
-                    face_triangles.append(global_indices)
-                    
-                    # Store this triangle's index in the global triangle array
-                    triangle_index = len(triangles) - 1
-                    face_triangle_indices.append(triangle_index)
-                    
-            except Exception as e:
-                print(f"Warning: Could not extract triangles from face {face_index}: {e}")
-                face_explorer.Next()
-                face_index += 1
-                continue
-            
-            # Calculate enhanced face properties
-            face_area = calculate_face_area_accurate(face_vertices, face_triangles)
-            face_center = calculate_face_center(face_vertices)
-            face_normal = calculate_face_normal_accurate(face_vertices, face_triangles)
-            face_bounds = calculate_face_bounds(face_vertices)
-            
-            # Create comprehensive face information for client-side mapping
+                    face_indices.append(vertex_map[node_index])
+
+            # Store the indexed geometry for this face
             face_info = {
                 'id': f'face_{face_index}',
-                'faceIndex': face_index,
-                'meshIndex': 0,  # Will be set by caller if multiple meshes
-                
-                # Triangle mapping - CRITICAL for face selection
-                'triangleIndices': face_triangle_indices,
-                'vertexIndices': face_vertex_indices,
-                
-                # Geometric properties
-                'area': face_area,
-                'center': face_center,
-                'normal': face_normal,
-                'bounds': face_bounds,
-                
-                # Counts for validation
-                'vertexCount': len(face_vertices),
-                'triangleCount': len(face_triangles),
-                
-                # Raw vertex data for face mesh creation
                 'vertices': face_vertices,
-                
-                # Face type information (if available)
-                'faceType': 'unknown',  # Could be enhanced to detect plane, cylinder, etc.
-                
-                # Connectivity information
-                'startVertexIndex': face_start_vertex,
-                'startTriangleIndex': face_start_triangle
+                'indices': face_indices,
+                'vertexCount': len(face_vertices),
+                'triangleCount': len(face_indices) // 3
             }
-            
             faces_data.append(face_info)
-            vertex_count += len(face_vertices)
-            
-            print(f"Processed face {face_index}: {len(face_vertices)} vertices, "
-                  f"{len(face_triangles)} triangles, area: {face_area:.3f}")
-        
+
+            # Update global lists for the entire shape
+            offset = len(global_vertices)
+            global_vertices.extend(face_vertices)
+            global_indices.extend([i + offset for i in face_indices])
+
         face_explorer.Next()
         face_index += 1
-    
-    return vertices, triangles, faces_data
+
+    flat_vertices = [coord for vertex in global_vertices for coord in vertex]
+
+    return {
+        "id": shape_id,
+        "vertices": flat_vertices,
+        "indices": global_indices,
+        "faces": faces_data,
+        "vertexCount": len(global_vertices),
+        "triangleCount": len(global_indices) // 3,
+        "faceCount": len(faces_data)
+    }
 
 def calculate_face_area_accurate(vertices, triangles):
     """Calculate accurate face area from triangles"""
@@ -322,10 +281,12 @@ def calculate_normals(vertices, triangles):
     
     return normals
 
+# In occserver.py
+
 def process_step_file(file_path):
     """Process STEP/IGES file and extract mesh data with face mapping"""
     print(f"Processing file: {file_path}")
-    
+
     try:
         if file_path.lower().endswith(('.step', '.stp')):
             shape = read_step_file(file_path)
@@ -333,37 +294,87 @@ def process_step_file(file_path):
             shape = read_iges_file(file_path)
         else:
             raise Exception("Unsupported file format")
-        
+
         print("File imported successfully")
-        
-        vertices, triangles, faces_data = extract_mesh_data(shape)
-        
-        print(f"Tessellation complete: {len(vertices)} vertices, {len(triangles)} triangles, {len(faces_data)} faces")
-        
-        vertex_normals = calculate_normals(vertices, triangles)
-        
-        mesh_data = {
-            "vertices": [coord for vertex in vertices for coord in vertex],
-            "indices": [idx for triangle in triangles for idx in triangle],
-            "normals": [coord for normal in vertex_normals for coord in normal],
-            "faces": faces_data,
-            "faceIndex": 1,
-            "vertexCount": len(vertices),
-            "triangleCount": len(triangles),
-            "faceCount": len(faces_data)
-        }
-        
+
+        # --- START: NEW CENTERING LOGIC ---
+        bbox = Bnd_Box()
+        brepbndlib.Add(shape, bbox)
+
+        if bbox.IsVoid():
+            raise Exception("Bounding box is void, cannot center shape.")
+
+        # Get bounding box dimensions and center
+        xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
+        center_x = (xmin + xmax) / 2.0
+        center_y = (ymin + ymax) / 2.0
+        center_z = (zmin + zmax) / 2.0
+
+        # Create a translation vector to move the shape's center to the origin
+        translation_vector = gp_Vec(-center_x, -center_y, -center_z)
+        transform = gp_Trsf()
+        transform.SetTranslation(translation_vector)
+
+        # Apply the transformation
+        shape.Move(TopLoc_Location(transform))
+        print(f"Shape centered. Moved by {-center_x:.2f}, {-center_y:.2f}, {-center_z:.2f}")
+        # --- END: NEW CENTERING LOGIC ---
+
+        # Generate a unique ID and store the shape in our scene dictionary
+        shape_id = uuid.uuid4().hex
+        scene_objects[shape_id] = shape
+        print(f"Stored shape with ID: {shape_id}")
+
+        mesh_data = extract_mesh_data(shape, shape_id)
+
+        print(f"Tessellation complete: {mesh_data['vertexCount']} vertices, {mesh_data['triangleCount']} triangles, {mesh_data['faceCount']} faces")
+
         return [mesh_data]
-        
+
     except Exception as e:
         print(f"❌ Error processing file: {e}")
         import traceback
         traceback.print_exc()
         raise e
-
 # ========================
 # STL EXPORT ENDPOINTS
 # ========================
+
+@app.route('/api/create/box', methods=['POST'])
+def create_box():
+    """Create a box primitive."""
+    try:
+        data = request.get_json() or {}
+        width = data.get('width', 10)
+        height = data.get('height', 10)
+        depth = data.get('depth', 10)
+
+        print(f"Creating box with dimensions: {width}x{height}x{depth}")
+
+        # Create the box shape using PythonOCC
+        box_shape = BRepPrimAPI_MakeBox(width, height, depth).Shape()
+
+        # Generate a unique ID and store the shape
+        shape_id = uuid.uuid4().hex
+        scene_objects[shape_id] = box_shape
+        print(f"Stored new box shape with ID: {shape_id}")
+
+        # Extract mesh data for sending to the client
+        mesh_data = extract_mesh_data(box_shape, shape_id)
+
+        return jsonify({
+            'success': True,
+            'message': 'Box created successfully',
+            'mesh': mesh_data
+        })
+
+    except Exception as e:
+        print(f"❌ Error in create_box: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+    
+
 
 @app.route('/api/health', methods=['GET'])
 def api_health():
@@ -604,99 +615,8 @@ def download_stl(project_id, filename):
 @app.route('/')
 def index():
     """Serve the main HTML file"""
-    html_files = ['index.html', 'index1.html', 'main.html', 'viewer.html']
+    return render_template('index1.html')
     
-    for html_file in html_files:
-        if os.path.exists(html_file):
-            print(f"📄 Serving {html_file}")
-            return send_file(html_file)
-    
-    try:
-        from OCC.Core import VERSION
-        occ_version = VERSION
-    except:
-        occ_version = "Unknown"
-    
-    return f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Enhanced Python STEP Processor</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; }}
-            .status {{ background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
-            .endpoints {{ background: #f0f8ff; padding: 20px; border-radius: 8px; }}
-            .error {{ background: #ffe8e8; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
-            code {{ background: #f5f5f5; padding: 2px 4px; border-radius: 3px; }}
-        </style>
-    </head>
-    <body>
-        <div class="status">
-            <h1>🐍 Enhanced Python STEP File Processor</h1>
-            <p><strong>✅ Server is running with PythonOCC {occ_version}</strong></p>
-            <p>📊 Ready to process STEP files and export STL selections!</p>
-        </div>
-        <div class="error">
-            <p><strong>⚠️ Frontend HTML file not found!</strong></p>
-            <p>Please save your HTML file as one of: {', '.join(html_files)}</p>
-        </div>
-        <div class="endpoints">
-            <h3>📡 Available Endpoints:</h3>
-            <h4>STEP Processing:</h4>
-            <ul>
-                <li><code>POST /process-step</code> - Upload and process STEP files</li>
-                <li><code>GET /test</code> - Test server status</li>
-                <li><code>GET /health</code> - Health check</li>
-            </ul>
-            <h4>STL Export & Storage:</h4>
-            <ul>
-                <li><code>POST /api/store-stl</code> - Store STL with project organization</li>
-                <li><code>POST /api/save-stl</code> - Simple STL save</li>
-                <li><code>GET /api/project/&lt;id&gt;</code> - Get project status</li>
-                <li><code>GET /api/list-projects</code> - List all projects</li>
-                <li><code>GET /api/download-stl/&lt;project&gt;/&lt;file&gt;</code> - Download STL</li>
-                <li><code>GET /api/health</code> - API health check</li>
-            </ul>
-        </div>
-    </body>
-    </html>
-    '''
-
-@app.route('/<path:filename>')
-def static_files(filename):
-    """Serve static files (JS, CSS, images, etc.)"""
-    try:
-        if '..' in filename or filename.startswith('/'):
-            return "Invalid file path", 400
-        
-        if not os.path.exists(filename):
-            return f"File {filename} not found", 404
-        
-        if filename.endswith('.js'):
-            mime_type = 'application/javascript'
-        elif filename.endswith('.css'):
-            mime_type = 'text/css'
-        elif filename.endswith('.html'):
-            mime_type = 'text/html'
-        elif filename.endswith('.json'):
-            mime_type = 'application/json'
-        else:
-            mime_type, _ = mimetypes.guess_type(filename)
-        
-        print(f"📁 Serving static file: {filename} (MIME: {mime_type})")
-        
-        response = send_file(filename, mimetype=mime_type)
-        
-        if filename.endswith('.css'):
-            response.headers['Content-Type'] = 'text/css; charset=utf-8'
-        elif filename.endswith('.js'):
-            response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
-            
-        return response
-        
-    except Exception as e:
-        print(f"❌ Error serving {filename}: {e}")
-        return f"Error serving file: {str(e)}", 500
 
 @app.route('/test', methods=['GET'])
 def test_endpoint():

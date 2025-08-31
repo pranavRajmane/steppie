@@ -4,14 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>STEP File 3D Viewer</title>
-    <link rel="stylesheet" href="styles.css">
-    <!-- Add the new face selector styles -->
-    <style>
-        /* Include the Enhanced Face Selector Styles here or link to face-selector.css */
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
-    <!-- Upload Page -->
+
     <div class="upload-page" id="uploadPage">
         <div class="upload-hero">
             <h1>Hi! I am Ayrton</h1>
@@ -32,7 +28,9 @@
                     <span class="format-badge">IGS</span>
                 </div>
             </div>
-            <input type="file" id="fileInput" accept=".step,.stp,.iges,.igs">
+            <input type="file" id="fileInput" accept=".step,.stp,.iges,.igs" style="display: none;">
+
+            <button id="emptyCanvasBtn" class="canvas-button">Start with an Empty Canvas</button>
 
             <div class="loading" id="loading">
                 <div class="spinner"></div>
@@ -47,28 +45,23 @@
         </div>
     </div>
 
-    <!-- Viewport Page -->
     <div class="viewport-page" id="viewportPage">
         <div class="main-view">
             <canvas id="canvas"></canvas>
             
+            <div class="viewport-toolbar" id="viewportToolbar">
+                <button class="tool-button" id="createBoxBtn" title="Create Box">📦</button>
+            </div>
+
             <div class="back-controls">
-                <button class="back-button-viewport" onclick="stepViewer.goBackToUpload()">
+                <button class="back-button-viewport" onclick="window.app.goBackToUpload()">
                     ← Back to Upload
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- <<script src="enhanced-step-face-mapper.js"></script>  Add this -->
+    <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 
-    <script src="step-viewer.js"></script>
-    <!-- Include the enhanced face mapper instead of simple-step-face-selector.js -->
-    <script>
-        // Embed the EnhancedStepFaceMapper class directly or include it as a separate file
-        // Copy the entire EnhancedStepFaceMapper class here
-    </script>
 </body>
 </html>
